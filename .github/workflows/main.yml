@@ -1,0 +1,64 @@
+name: Build Android APK
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Download the live web app
+        run: |
+          mkdir -p www
+          curl -fsSL https://chess.ggawaper.workers.dev/ -o www/index.html
+          grep -q "chess-online.ggawaper.workers.dev" www/index.html
+
+      - name: Create Capacitor project
+        run: |
+          npm init -y
+          npm i @capacitor/core@7 @capacitor/cli@7 @capacitor/android@7 @capacitor/assets@3
+          echo '{"appId":"com.ggawaper.chess","appName":"Шахматы","webDir":"www","backgroundColor":"#141416"}' > capacitor.config.json
+          npx cap add android
+          npx cap sync android
+
+      - name: App icon (optional, needs icon.png in the repo)
+        continue-on-error: true
+        run: |
+          if [ -f icon.png ]; then
+            mkdir -p assets
+            cp icon.png assets/icon.png
+            npx capacitor-assets generate --android --iconBackgroundColor '#141416'
+          fi
+
+      - name: Build APK
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug
+
+      - name: Publish APK to Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp android/app/build/outputs/apk/debug/app-debug.apk chess.apk
+          gh release delete latest --yes --cleanup-tag || true
+          gh release create latest chess.apk --title "Шахматы для Android" --notes "Скачайте chess.apk и установите на телефон."
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: chess-apk
+          path: chess.apk
